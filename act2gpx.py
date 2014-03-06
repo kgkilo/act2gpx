@@ -5,7 +5,7 @@ import xml.dom.minidom
 import math
 import getopt
 import sys
-from dateutil import parser	#needs python-dateutil on Ubuntu
+from dateutil import parser #needs python-dateutil on Ubuntu
 from datetime import timedelta
 
 def childElements(parent):
@@ -19,7 +19,7 @@ def childElements(parent):
 class ActXMLParser(object):
     __root = None
     __outputfile = None
-    def __init__(self, xml_node, noalti, altibaro, noext, nopower, outputfile):
+    def __init__(self, xml_node, noalti, altibaro, noext, nopower, notemp, outputfile):
         assert isinstance(xml_node,xml.dom.Node)
         assert xml_node.nodeType == xml_node.ELEMENT_NODE
         self.__root = xml_node
@@ -35,6 +35,7 @@ class ActXMLParser(object):
         self.__cadence = None
         self.__noext = noext
         self.__nopower = nopower
+        self.__notemp = notemp
         self.__nb_trackpoints_parsed = 0
 
     def extension(self, hr, temperature, cadence, power):
@@ -49,7 +50,7 @@ class ActXMLParser(object):
             hrext = "<gpxtpx:hr>{hr}</gpxtpx:hr>".format(hr=hr)
 
         tmpext = ""
-        if (temperature != None):
+        if ((self.__notemp != True) and (temperature != None)):
             extensionfound = True
             tmpext = "<gpxtpx:atemp>{temp}</gpxtpx:atemp>".format(temp=temperature)
 
@@ -66,30 +67,28 @@ class ActXMLParser(object):
         if not extensionfound:
             return ""
 
+        #Compose return string
+        ret = """<extensions>
+        <gpxtpx:TrackPointExtension>
+            {hrext}""".format(hrext=hrext)
+
         if tmpext != "":
-            return """<extensions>
-        <gpxtpx:TrackPointExtension>
-            {hrext}
-            {tmpext}
-            {cadext}
-            {powext}
+            ret += """
+            {tmpext}""".format(tmpext=tmpext)
+
+        if powext != "":
+            ret += """
+            {powext}""".format(powext=powext)
+
+        if cadext != "":
+            ret += """
+            {cadext}""".format(cadext=cadext)
+
+        ret += """
         </gpxtpx:TrackPointExtension>
-    </extensions>""".format(hrext=hrext,tmpext=tmpext,cadext=cadext,powext=powext)
-        elif powext != "":
-            return """<extensions>
-        <gpxtpx:TrackPointExtension>
-            {hrext}
-            {cadext}
-            {powext}
-        </gpxtpx:TrackPointExtension>
-    </extensions>""".format(hrext=hrext,cadext=cadext,powext=powext)
-        else:
-            return """<extensions>
-        <gpxtpx:TrackPointExtension>
-            {hrext}
-            {cadext}
-        </gpxtpx:TrackPointExtension>
-    </extensions>""".format(hrext=hrext,cadext=cadext)
+    </extensions>"""
+
+        return ret
 
 
     def __parse_trackpoint(self, trackpoint):
@@ -203,7 +202,7 @@ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/
 
 def usage():
     print """
-act2gpx [--noalti] [--altibaro] [--noext] [--nopower ]filename
+act2gpx [--noalti] [--altibaro] [--noext] [--nopower] [--notemp] filename
 Creates a file filename.gpx in GPX format from filename in Sportek TTS .act XML format.
 If option --noalti is given, elevation will be set to zero.
 If option --altibaro is given, elevation is retrieved from altibaro information. The default is to retrieve GPS elevation information.
@@ -213,7 +212,7 @@ If option --nopower is given, power data will not be inserted in the extended da
 
 def main():
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "ha", ["help", "noalti", "altibaro", "noext", "nopower"])
+        opts, args = getopt.getopt(sys.argv[1:], "ha", ["help", "noalti", "altibaro", "noext", "nopower", "notemp"])
     except getopt.GetoptError, err:
         # print help information and exit:
         print str(err) # will print something like "option -a not recognized"
@@ -230,6 +229,7 @@ def main():
     altibaro = True #False
     noext = False
     nopower = False
+    notemp = False
     for o, a in opts:
         if o in ("-h", "--help"):
             usage()
@@ -242,6 +242,8 @@ def main():
             noext = True
         elif o in ("--nopower"):
             nopower = True
+        elif o in ("--notemp"):
+            notemp = True
         else:
             assert False, "unhandled option"
     # ...
@@ -268,15 +270,9 @@ def main():
     outputfilename = rootfilename + '.gpx'
     outputfile = open(outputfilename, 'w')
     print "Creating file {0}".format(outputfilename)
-    ActXMLParser(top[0], noalti, altibaro, noext, nopower, outputfile).execute()
+    ActXMLParser(top[0], noalti, altibaro, noext, nopower, notemp, outputfile).execute()
     outputfile.close()
     print "\nDone."
 
 if __name__ == "__main__":
     main()
-
-
-'''
-TODO
-Add --notemp
-'''
