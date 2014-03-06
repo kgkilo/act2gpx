@@ -19,7 +19,7 @@ def childElements(parent):
 class ActXMLParser(object):
     __root = None
     __outputfile = None
-    def __init__(self, xml_node, noalti, altibaro, noext, outputfile):
+    def __init__(self, xml_node, noalti, altibaro, noext, nopower, outputfile):
         assert isinstance(xml_node,xml.dom.Node)
         assert xml_node.nodeType == xml_node.ELEMENT_NODE
         self.__root = xml_node
@@ -34,6 +34,7 @@ class ActXMLParser(object):
         self.__temperature = None
         self.__cadence = None
         self.__noext = noext
+        self.__nopower = nopower
         self.__nb_trackpoints_parsed = 0
 
     def extension(self, hr, temperature, cadence, power):
@@ -58,7 +59,7 @@ class ActXMLParser(object):
             cadext = "<gpxtpx:cad>{cadence}</gpxtpx:cad>".format(cadence=cadence)
 
         powext = ""
-        if (power != None):
+        if ((self.__nopower != True) and (power != None)):
             extensionfound = True
             powext = "<gpxtpx:power>{power}</gpxtpx:power>".format(power=power)
 
@@ -74,7 +75,7 @@ class ActXMLParser(object):
             {powext}
         </gpxtpx:TrackPointExtension>
     </extensions>""".format(hrext=hrext,tmpext=tmpext,cadext=cadext,powext=powext)
-        else:
+        elif powext != "":
             return """<extensions>
         <gpxtpx:TrackPointExtension>
             {hrext}
@@ -82,6 +83,13 @@ class ActXMLParser(object):
             {powext}
         </gpxtpx:TrackPointExtension>
     </extensions>""".format(hrext=hrext,cadext=cadext,powext=powext)
+        else:
+            return """<extensions>
+        <gpxtpx:TrackPointExtension>
+            {hrext}
+            {cadext}
+        </gpxtpx:TrackPointExtension>
+    </extensions>""".format(hrext=hrext,cadext=cadext)
 
 
     def __parse_trackpoint(self, trackpoint):
@@ -195,29 +203,33 @@ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/
 
 def usage():
     print """
-act2gpx [--noalti] [--altibaro] [--noext] filename
+act2gpx [--noalti] [--altibaro] [--noext] [--nopower ]filename
 Creates a file filename.gpx in GPX format from filename in Sportek TTS .act XML format.
 If option --noalti is given, elevation will be set to zero.
 If option --altibaro is given, elevation is retrieved from altibaro information. The default is to retrieve GPS elevation information.
-If option --noext is given, extended data (hr, temperature, cadence) will not generated. Useful for instance if size of output file matters.
+If option --noext is given, extended data (hr, temperature, cadence, power) will not generated. Useful for instance if size of output file matters.
+If option --nopower is given, power data will not be inserted in the extended dataset.
 """
 
 def main():
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "ha", ["help", "noalti", "altibaro", "noext"])
+        opts, args = getopt.getopt(sys.argv[1:], "ha", ["help", "noalti", "altibaro", "noext", "nopower"])
     except getopt.GetoptError, err:
         # print help information and exit:
         print str(err) # will print something like "option -a not recognized"
         usage()
         sys.exit(2)
+
     if len(sys.argv[1:]) == 0:
         usage()
         sys.exit(2)
+
     output = None
     verbose = False
     noalti = False
     altibaro = True #False
     noext = False
+    nopower = False
     for o, a in opts:
         if o in ("-h", "--help"):
             usage()
@@ -228,6 +240,8 @@ def main():
             altibaro = True
         elif o in ("--noext"):
             noext = True
+        elif o in ("--nopower"):
+            nopower = True
         else:
             assert False, "unhandled option"
     # ...
@@ -254,7 +268,7 @@ def main():
     outputfilename = rootfilename + '.gpx'
     outputfile = open(outputfilename, 'w')
     print "Creating file {0}".format(outputfilename)
-    ActXMLParser(top[0], noalti, altibaro, noext, outputfile).execute()
+    ActXMLParser(top[0], noalti, altibaro, noext, nopower, outputfile).execute()
     outputfile.close()
     print "\nDone."
 
@@ -264,6 +278,5 @@ if __name__ == "__main__":
 
 '''
 TODO
-Add --nopower
 Add --notemp
 '''
