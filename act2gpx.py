@@ -135,7 +135,7 @@ class ActXMLParser(object):
             if key.lower() == "altitude":
                 if self.__opts['noalti']:
                     altitude = 0
-                elif self.__opts['altibaro']:
+                else:
                     altitude = int(val)
 
             if key.lower() == "speed":
@@ -160,14 +160,24 @@ class ActXMLParser(object):
 
         #Format output
         if latitude is not None and longitude is not None:
-            print >> self.__outputfile, """
+            if self.__opts['noalti']:
+                print >> self.__outputfile, """
+<trkpt lat="{latitude}" lon="{longitude}"><time>{time}</time><speed>{speed}</speed>
+    {extension}
+</trkpt>
+""".format(latitude=latitude, longitude=longitude,
+           time=timestamp, speed=speed,
+           extension=self.extension(heartrate, temperature,
+                                    cadence, power))
+            else:
+                print >> self.__outputfile, """
 <trkpt lat="{latitude}" lon="{longitude}"><ele>{altitude}</ele><time>{time}</time><speed>{speed}</speed>
     {extension}
 </trkpt>
 """.format(latitude=latitude, longitude=longitude, altitude=altitude,
-            time=timestamp, speed=speed,
-            extension=self.extension(heartrate, temperature, cadence,
-                                     power))
+           time=timestamp, speed=speed,
+           extension=self.extension(heartrate, temperature,
+                                    cadence, power))
 
 
     def __parse_trackpoints(self, trackpoints):
@@ -236,10 +246,9 @@ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/
 def usage():
     '''Prints default usage help'''
     print """
-act2gpx [--noalti] [--altibaro] [--noext] [--nopower] [--notemp] filename
+act2gpx [--noalti] [--noext] [--nopower] [--notemp] filename
 Creates a file filename.gpx in GPX format from filename in Sportek TTS .act XML format.
-If option --noalti is given, elevation will be set to zero.
-If option --altibaro is given, elevation is retrieved from altibaro information. The default is to retrieve GPS elevation information.
+If option --noalti is given, elevation will be not be set. Otherwise, elevation is retrieved from barometric altimeter information.
 If option --noext is given, extended data (heartrate, temperature, cadence, power) will not generated. Useful for instance if size of output file matters.
 If option --nopower is given, power data will not be inserted in the extended dataset.
 """
@@ -282,7 +291,7 @@ def main():
     try:
         ops, args = getopt.getopt(sys.argv[1:],
             "ha",
-            ["help", "noalti", "altibaro", "noext",
+            ["help", "noalti", "noext",
             "nopower", "notemp"])
     except getopt.GetoptError, err:
         # print help information and exit:
@@ -296,7 +305,6 @@ def main():
 
     #Parse command-line options
     opts = {'noalti':False,
-            'altibaro':True,
             'noext':False,
             'nopower':False,
             'notemp':False}
@@ -307,8 +315,6 @@ def main():
             sys.exit()
         elif option in ("-n", "--noalti"):
             opts['noalti'] = True
-        elif option in ("-a", "--altibaro"):
-            opts['altibaro'] = True
         elif option in ("--noext"):
             opts['noext'] = True
         elif option in ("--nopower"):
