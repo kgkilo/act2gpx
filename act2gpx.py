@@ -1,4 +1,9 @@
-#https://code.google.com/p/ambit2gpx/source/browse/src/ambit2gpx.py
+'''
+Convert a GlobalSat GB-580 .ACT file to a GPX file, including extensions.
+
+Original idea from:
+    https://code.google.com/p/ambit2gpx/source/browse/src/ambit2gpx.py
+'''
 
 import os
 import xml.dom.minidom
@@ -7,7 +12,9 @@ import sys
 from dateutil import parser #needs python-dateutil on Ubuntu
 from datetime import timedelta
 
+
 def child_elements(parent):
+    '''Returns a list of child elements of a node of an XML structure'''
     elements = []
     for child in parent.childNodes:
         if child.nodeType != child.ELEMENT_NODE:
@@ -15,54 +22,49 @@ def child_elements(parent):
         elements.append(child)
     return elements
 
+
 class ActXMLParser(object):
-    __root = None
-    __outputfile = None
-    def __init__(self, xml_node, noalti, altibaro, \
-            noext, nopower, notemp, output_file):
+    '''The main converter class'''
+
+    def __init__(self, xml_node, opts, output_file):
         assert isinstance(xml_node, xml.dom.Node)
         assert xml_node.nodeType == xml_node.ELEMENT_NODE
         self.__root = xml_node
         self.__outputfile = output_file
-        self.__altibaro = altibaro
-        self.__noalti = noalti
-        self.__altitude = None
-        self.__latitude = None
-        self.__longitude = None
         self.__time =  None
-        self.__hr = None
-        self.__temperature = None
-        self.__cadence = None
-        self.__noext = noext
-        self.__nopower = nopower
-        self.__notemp = notemp
+        self.__opts = opts
         self.__nb_trackpoints_parsed = 0
 
-    def extension(self, hr, temperature, cadence, power):
-        if (self.__noext == True):
+
+    def extension(self, heartrate, temperature, cadence, power):
+        '''Compiles the GPX extension part of a trackpoint'''
+        if self.__opts['noext']:
             return ""
 
         extension_found = False
 
         hr_ext = ""
-        if (hr != None):
+        if (heartrate is not None):
             extension_found = True
-            hr_ext = "<gpxtpx:hr>{hr}</gpxtpx:hr>".format(hr=hr)
+            hr_ext = "<gpxtpx:hr>{hr}</gpxtpx:hr>".format(hr=heartrate)
 
         tmp_ext = ""
-        if ((self.__notemp != True) and (temperature != None)):
+        if ((not self.__opts['notemp']) and (temperature is not None)):
             extension_found = True
-            tmp_ext = "<gpxtpx:atemp>{temp}</gpxtpx:atemp>".format(temp=temperature)
+            tmp_ext = "<gpxtpx:atemp>{temp}</gpxtpx:atemp>".format(
+                                                    temp=temperature)
 
         cad_ext = ""
-        if (cadence != None):
+        if (cadence is not None):
             extension_found = True
-            cad_ext = "<gpxtpx:cad>{cadence}</gpxtpx:cad>".format(cadence=cadence)
+            cad_ext = "<gpxtpx:cad>{cadence}</gpxtpx:cad>".format(
+                                                    cadence=cadence)
 
         pow_ext = ""
-        if ((self.__nopower != True) and (power != None)):
+        if ((not self.__opts['nopower']) and (power is not None)):
             extension_found = True
-            pow_ext = "<gpxtpx:power>{power}</gpxtpx:power>".format(power=power)
+            pow_ext = "<gpxtpx:power>{power}</gpxtpx:power>".format(
+                                                    power=power)
 
         if not extension_found:
             return ""
@@ -91,21 +93,24 @@ class ActXMLParser(object):
         return ret
 
 
+# pylint: disable=R0912
+#Too many branches
     def __parse_trackpoint(self, trackpoint):
+        '''Parse one trackpoint from the ACT file
+            and write the appropriate GPX line'''
         latitude = None
         longitude = None
         altitude = None
         speed = None
-        hr = None
+        heartrate = None
         cadence = None
         power = None
         temperature = None
         inttime = None
-        distance = None
-        s = None
+        timestamp = None
 
         self.__nb_trackpoints_parsed += 1   #One more trackpoint parsed
-        #Print a dot for every 100 trackpoint, as a progress bar
+        #Progress bar: print a dot for every 100 trackpoint
         if self.__nb_trackpoints_parsed % 100 == 0:
             sys.stdout.write(".")
             if self.__nb_trackpoints_parsed % (80*100) == 0:
@@ -116,64 +121,71 @@ class ActXMLParser(object):
         #that's why so many replace() are needed
         for node in child_elements(trackpoint):
             key = node.tagName
+            val = node.firstChild.nodeValue.replace(',', '.')
+
             if key.lower() == "latitude":
-                latitude = float(node.firstChild.nodeValue.replace(',', '.'))
+                latitude = float(val)
 
             if key.lower() == "longitude":
-                longitude = float(node.firstChild.nodeValue.replace(',', '.'))
+                longitude = float(val)
 
             if key.lower() == "intervaltime":
-                inttime = float(node.firstChild.nodeValue.replace(',', '.'))
+                inttime = float(val)
 
             if key.lower() == "altitude":
-                if self.__noalti:
+                if self.__opts['noalti']:
                     altitude = 0
-                elif self.__altibaro:
-                    altitude = node.firstChild.nodeValue
+                elif self.__opts['altibaro']:
+                    altitude = int(val)
 
             if key.lower() == "speed":
-                speed = float(node.firstChild.nodeValue.replace(',', '.'))
+                speed = float(val)
 
             if key.lower() == "heartrate":
-                #self.__hr = int((float(node.firstChild.nodeValue))*60+0.5)
-                hr = int(node.firstChild.nodeValue)
+                #heartrate = int((float(val)) * 60 + 0.5)
+                heartrate = int(val)
 
             if key.lower() == "cadence":
-                cadence = int(node.firstChild.nodeValue)
+                cadence = int(val)
 
             if key.lower() == "power":
-                power = int(node.firstChild.nodeValue)
+                power = int(val)
 
             if key.lower() == "temperature":
-                temperature = float(node.firstChild.nodeValue)-273
+                temperature = float(val) - 273
 
         #Timestamp is an increment from the previous trackpoint
-        self.__time += timedelta(milliseconds=inttime*1000)
-        s = self.__time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.__time += timedelta(milliseconds = inttime * 1000)
+        timestamp = self.__time.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         #Format output
-        if latitude != None and longitude != None:
-            print >>self.__outputfile, """
+        if latitude is not None and longitude is not None:
+            print >> self.__outputfile, """
 <trkpt lat="{latitude}" lon="{longitude}"><ele>{altitude}</ele><time>{time}</time><speed>{speed}</speed>
     {extension}
 </trkpt>
-""".format(latitude=latitude, longitude=longitude, altitude=altitude, time=s, speed=speed, extension=self.extension(hr, temperature, cadence, power))
+""".format(latitude=latitude, longitude=longitude, altitude=altitude,
+            time=timestamp, speed=speed,
+            extension=self.extension(heartrate, temperature, cadence,
+                                     power))
 
 
     def __parse_trackpoints(self, trackpoints):
+        '''Parse all trackpoints from the ACT file'''
         for node in child_elements(trackpoints):
             key = node.tagName
 
             #At first, we should get the start date/time
-            if self.__time == None:
+            if self.__time is None:
                 if key.lower() == "trackmaster":
-                    sTmp = ""
-                    for tm in child_elements(node):
-                        if tm.tagName.lower() == "trackname":
-                            sTmp = tm.firstChild.nodeValue
-                        if tm.tagName.lower() == "starttime":
-                            sTmp = sTmp + ' ' + tm.firstChild.nodeValue
-                    self.__time = parser.parse(sTmp)
+                    start_time = ""
+                    for tm_node in child_elements(node):
+                        if tm_node.tagName.lower() == "trackname":
+                            start_time = tm_node.firstChild.nodeValue
+                        if tm_node.tagName.lower() == "starttime":
+                            start_time += ' ' \
+                                + tm_node.firstChild.nodeValue
+                    self.__time = parser.parse(start_time)
 
             #Now let's get those trackpoints
             if key.lower() == "trackpoints":
@@ -181,11 +193,13 @@ class ActXMLParser(object):
 
 
     def execute(self):
+        '''Compile the contents of the GPX file'''
         #Write GPX header
         #Creator set to Garmin Edge 800 so that Strava accepts
         # barometric altitude datae
-        print >>self.__outputfile, '<?xml version="1.0" encoding="UTF-8" standalone="no" ?>'
-        print >>self.__outputfile, """
+        print >> self.__outputfile, \
+            '<?xml version="1.0" encoding="UTF-8" standalone="no" ?>'
+        print >> self.__outputfile, """
 <gpx version="1.1"
 creator="Garmin Edge 800"
 xmlns="http://www.topografix.com/GPX/1/1"
@@ -212,7 +226,7 @@ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/
                 self.__parse_trackpoints(node)
 
         #Finish writing GPX file
-        print >>self.__outputfile,"""
+        print >> self.__outputfile,"""
     </trkseg>
   </trk>
 </gpx>
@@ -220,77 +234,107 @@ xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/
 
 
 def usage():
+    '''Prints default usage help'''
     print """
 act2gpx [--noalti] [--altibaro] [--noext] [--nopower] [--notemp] filename
 Creates a file filename.gpx in GPX format from filename in Sportek TTS .act XML format.
 If option --noalti is given, elevation will be set to zero.
 If option --altibaro is given, elevation is retrieved from altibaro information. The default is to retrieve GPS elevation information.
-If option --noext is given, extended data (hr, temperature, cadence, power) will not generated. Useful for instance if size of output file matters.
+If option --noext is given, extended data (heartrate, temperature, cadence, power) will not generated. Useful for instance if size of output file matters.
 If option --nopower is given, power data will not be inserted in the extended dataset.
 """
 
+
+def read_input_file(filename):
+    '''Reads the contents of the input file'''
+    input_file = open(filename)
+    input_file.readline() # Skip first line
+    file_contents = input_file.read()
+    input_file.close()
+    return file_contents
+
+
+def write_output_file(root_filename, top_node, opts):
+    '''Writes the top_node tree into a GPX file'''
+    output_filename = root_filename + '.gpx'
+    output_file = open(output_filename, 'w')
+    print "Creating file {0}".format(output_filename)
+    ActXMLParser(top_node[0], opts, output_file).execute()
+    output_file.close()
+
+
+def parse_act_file(file_contents):
+    '''Parses the contents of the ACT file and returns it'''
+    doc = xml.dom.minidom.parseString(
+                        '<?xml version="1.0" encoding="utf-8"?><top>'
+                        + file_contents + '</top>')
+    assert doc is not None
+    top = doc.getElementsByTagName('top')
+    assert len(top) == 1
+    return top
+
+
+# pylint: disable=W0612
+#Unused variable (arg)
 def main():
+    '''Erm.. main...'''
+
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "ha", ["help", "noalti", "altibaro", "noext", "nopower", "notemp"])
+        ops, args = getopt.getopt(sys.argv[1:],
+            "ha",
+            ["help", "noalti", "altibaro", "noext",
+            "nopower", "notemp"])
     except getopt.GetoptError, err:
         # print help information and exit:
         print str(err) # will print something like "option -a not recognized"
         usage()
         sys.exit(2)
 
-    if len(sys.argv[1:]) == 0:
+    if not sys.argv[1:]:
         usage()
         sys.exit(2)
 
     #Parse command-line options
-    output = None
-    verbose = False
-    noalti = False
-    altibaro = True #False
-    noext = False
-    nopower = False
-    notemp = False
-    for o, a in opts:
-        if o in ("-h", "--help"):
+    opts = {'noalti':False,
+            'altibaro':True,
+            'noext':False,
+            'nopower':False,
+            'notemp':False}
+
+    for option, arg in ops:
+        if option in ("-h", "--help"):
             usage()
             sys.exit()
-        elif o in ("-n", "--noalti"):
-            noalti = True
-        elif o in ("-a", "--altibaro"):
-            altibaro = True
-        elif o in ("--noext"):
-            noext = True
-        elif o in ("--nopower"):
-            nopower = True
-        elif o in ("--notemp"):
-            notemp = True
+        elif option in ("-n", "--noalti"):
+            opts['noalti'] = True
+        elif option in ("-a", "--altibaro"):
+            opts['altibaro'] = True
+        elif option in ("--noext"):
+            opts['noext'] = True
+        elif option in ("--nopower"):
+            opts['nopower'] = True
+        elif option in ("--notemp"):
+            opts['notemp'] = True
         else:
             assert False, "unhandled option"
 
+    #Read input ACT file
     filename = args[0]
     (root_filename, ext) = os.path.splitext(filename)
     if (ext == ""):
         filename += ".xml"
     if (not os.path.exists(filename)):
-        print >>sys.stderr, "File {0} doesn't exist".format(filename)
+        print >> sys.stderr, "File {0} doesn't exist".format(filename)
         sys.exit()
-    file = open(filename)
-    file.readline() # Skip first line
-    file_contents = file.read()
-    file.close()
+    file_contents = read_input_file(filename)
 
+    #Parse ACT file contents
     print "Parsing file {0}".format(filename)
-    doc = xml.dom.minidom.parseString('<?xml version="1.0" encoding="utf-8"?><top>' + file_contents + '</top>')
-    assert doc != None
-    top = doc.getElementsByTagName('top')
-    assert len(top) == 1
+    top = parse_act_file(file_contents)
     print "Done."
 
-    output_filename = root_filename + '.gpx'
-    output_file = open(output_filename, 'w')
-    print "Creating file {0}".format(output_filename)
-    ActXMLParser(top[0], noalti, altibaro, noext, nopower, notemp, output_file).execute()
-    output_file.close()
+    #Write output GPX file
+    write_output_file(root_filename, top, opts)
     print "\nDone."
 
 if __name__ == "__main__":
